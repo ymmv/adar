@@ -1,0 +1,201 @@
+#!/usr/bin/perl
+#
+use strict;
+use warnings;
+
+my $INT_SIZE = 2;
+my $filename = 'somefile.bin';
+my $DEBUG = 1;
+
+sub fdt_open {
+    my $filename = shift @_;
+
+    my $fh;
+    open $fh, '<', $filename or die "Couldn't open file $filename: $!\n";
+    binmode $fh;
+
+    return $fh;
+}
+
+sub fdt_close {
+    my $fh = shift @_;
+
+    close $fh or die "Couldn't close file: $!\n";
+}
+
+sub read_zstring {
+    my $fh = shift @_;
+    my $content=0;
+
+    my $text = '';
+ZSTRING:
+    while ( read( $fh, $content, 1 ) ) {
+        my $c = unpack 'C', $content;
+        last ZSTRING if ! $c;
+        $text .= $content,
+    }
+
+    return $text;
+}
+
+sub read_lstring {
+    my $fh = shift @_;
+
+    my $l = read_u16le ($fh);
+    my $text = read_zstring( $fh );
+
+    die "input not an lstring : length($text) != $l"
+        if $l != 1 + length($text);
+    return $text;
+}
+
+sub read_string {
+    my $fh = shift @_;
+
+    my $text = '';
+    while ( read $fh, my $packed_length, $INT_SIZE ) {
+        my $length = unpack 'v', $packed_length;
+
+        read $fh, $text, $length;
+
+        print STDERR $length, "\t", $text, "\n"
+          if $DEBUG;
+    }
+    return $text;
+}
+
+sub read_char {
+    my $fh = shift @_;
+    read $fh, my $content, 1;
+    return $content;
+}
+
+sub read_u8 {
+    my $fh = shift @_;
+    read $fh, my $content, 1;
+    my $val = unpack 'C', $content;
+    return $val;
+}
+
+sub read_u16le {
+    my $fh = shift @_;
+
+    read $fh, my $content, 2;
+    my $val = unpack 'v', $content;
+
+    return $val;
+}
+
+sub read_u16be {
+    my $fh = shift @_;
+
+    read $fh, my $content, 2;
+    my $val = unpack 'n', $content;
+
+    return $val;
+}
+
+sub read_u32le {
+    my $fh = shift @_;
+
+    read $fh, my $content, 4;
+    my $val = unpack 'V', $content;
+
+    return $val;
+}
+
+sub read_u32be {
+    my $fh = shift @_;
+
+    read $fh, my $content, 4;
+    my $val = unpack 'V', $content;
+
+    return $val;
+}
+
+sub fdt_dump {
+    my $filename = shift @_;
+
+    my $fh = fdt_open($filename);
+    # 
+    # Header
+    #
+
+    # 8 octets
+#    print read_u8($fh), "\n";
+
+    my $nf;
+    print read_u16le($fh), "\n";
+    print read_u16le($fh), "\n";
+    print $nf = read_u16le($fh), "\n";
+    print read_u16le($fh), "\n";
+
+    # Nom de fichier de données
+    print read_zstring($fh) , "\n";
+    
+    # extension
+    print read_zstring($fh), "\n";
+    
+    # Nom de fichier d'index
+    print read_zstring($fh) , "\n";
+
+    # extension
+    print read_zstring($fh), "\n";
+    
+    print "-- 5 champs 16bit\n";
+    print read_u16le($fh), "\n";
+    print read_u16le($fh), "\n";
+    print read_u16le($fh), "\n";
+    print read_u16le($fh), "\n";
+    print read_u16le($fh), "\n";
+
+
+    # premier champ
+    print "-- Premier champ ??\n";
+    my $fieldname = read_char($fh) . read_char($fh);
+    print "$filename :" ,
+     read_u16le($fh), " ",
+     read_u16le($fh)," ",
+     read_u16le($fh)," ",
+     read_u16le($fh)," ",
+     read_u16le($fh), "\n";
+
+    my %field;
+    # Description des champs
+    print "-- Description des champs\n";
+    for my $i (1 .. $nf) {
+        # nom du champ (zstring ?)
+        my $fieldname = read_zstring( $fh );
+        print "$fieldname : ",
+        read_u16le($fh), " ",
+        read_u16le($fh), " ",
+        read_u16le($fh), " ",
+        read_u16le($fh), " ",
+        read_u16le($fh), " ",
+        "\n";
+    }
+
+    # informations sur les champs ou index ??
+    print "-- Informations sur les champs ou index\n";
+    for my $i ( 1 .. $nf) {
+        print read_u16le($fh), " ",
+        print read_u16le($fh), " ",
+        print read_u16le($fh), " ",
+        print read_u16le($fh), " ",
+        "\n";
+    }
+    
+    print read_u16le($fh), "\n";
+
+    # Description des colonnes
+    print "-- Description des colonnes\n";
+    foreach my $i ( 1 .. $nf) {
+        print read_lstring($fh), "\n";
+    }
+
+    
+}
+
+
+my $f = shift @ARGV;
+fdt_dump( $f );
