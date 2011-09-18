@@ -1,3 +1,8 @@
 A first attempt to read .ddm (TODO, should be simple using
-Config::Ini), .fdt (ongoing), and .bin files.
+Config::Ini), .fdt (ongoing), and .bin files. These files seem to be
+for Adabas, but I can't know for sure.
 
+This project may or may not, depending on bandwith, and on achievement
+of my primary goal : dump a few files for backup purpose.
+
+Feel free to mail me at ymmv@free.fr for pull requests.
