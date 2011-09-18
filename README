@@ -1,0 +1,3 @@
+A first attempt to read .ddm (TODO, should be simple using
+Config::Ini), .fdt (ongoing), and .bin files.
+
