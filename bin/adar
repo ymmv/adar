@@ -5,6 +5,8 @@ use warnings;
 use Carp;
 use Config::IniFiles;
 use Data::Dumper;
+use Data::HexDump;
+use Fcntl qw( :DEFAULT :seek );
 
 =pod
 
@@ -13,10 +15,11 @@ use Data::Dumper;
     %dbdesc = {
         ddm => 'dummy.ddm',
         files => {
-            'FILE1' => { fdt => 'dummy1.fdt', bin => 'dummy1.bin' },
-            'FILE2' => { fdt => 'dummy2.fdt', bin => 'dummy2.bin' },
+            'FILE1' => { fdt => 'dummy1.fdt', bin_file => 'dummy1.bin' },
+            'FILE2' => { fdt => 'dummy2.fdt', bin_file => 'dummy2.bin' },
         },
         fields => {
+            count => 123,
             1 => { name => AA, 'type' => 'S', comment => '...', },
             2 => { name => AB, 'type' => 'K', comment => '...', },
         },
@@ -27,6 +30,16 @@ use Data::Dumper;
 my $DEBUG = 1;
 
 sub pnt_open {
+    my $filename = shift @_;
+
+    my $fh;
+    open $fh, '<', $filename or croak "Couldn't open file $filename: $!\n";
+    binmode $fh;
+
+    return $fh;
+}
+
+sub bin_open {
     my $filename = shift @_;
 
     my $fh;
@@ -176,11 +189,11 @@ sub ddm_read {
         if ( defined $fnr ) {
             my $basename = $dbdesc{files}->{$fnr}->{fdt};
             $basename =~ s/\.fdt$/.bin/;
-            $dbdesc{files}->{$fnr}->{bin} = $basename
-              if not defined $dbdesc{files}->{$fnr}->{bin};
+            $dbdesc{files}->{$fnr}->{bin_file} = $basename
+              if not defined $dbdesc{files}->{$fnr}->{bin_file};
             $basename =~ s/\.bin$/.pnt/;
-            $dbdesc{files}->{$fnr}->{pnt} = $basename
-              if not defined $dbdesc{files}->{$fnr}->{pnt};
+            $dbdesc{files}->{$fnr}->{pnt_file} = $basename
+              if not defined $dbdesc{files}->{$fnr}->{pnt_file};
         }
     }
 
@@ -193,42 +206,85 @@ sub ddm_read {
         else {
             my $fieldesc = $cfg->val( 'DDF', $p );
             my ( $field, $type, $comment );
-            if ( $fieldesc =~ m{ (\w{2}) \s* [,] (\w) \s* [;] \s* (\w*) }imxs )
+            if ( $fieldesc =~ m{ (\w{2}) \s* [,] ([\w]+) \s* (.*) }imxs )
             {
                 ( $field, $type, $comment ) = ( $1, $2, $3 );
+                if (defined $comment) {
+                    $comment =~ s{ \A \s* [;] \s* }{}imxs;
+                }
             }
-            $dbdesc{fields}->{$p}->{name}    = $field;
-            $dbdesc{fields}->{$p}->{type}    = $type;
-            $dbdesc{fields}->{$p}->{comment} = $comment if defined $comment;
+            $dbdesc{ddm_fields}->{$p}->{name}    = $field;
+            $dbdesc{ddm_fields}->{$p}->{type}    = $type;
+            $dbdesc{ddm_fields}->{$p}->{comment} = $comment if defined $comment;
         }
     }
-    print Dumper \%dbdesc;
+    print Dumper \%dbdesc if $DEBUG;
 
     return \%dbdesc;
+}
+
+my %pnt_method = (
+    D => \&read_u32le,
+    K => \&read_u32le,
+    S => \&read_zstring,
+);
+
+sub pnt_load {
+    my $dbdesc = shift @_;
+
+    foreach my $file ( keys %{ $dbdesc->{files} } ) {
+        my $filename = $dbdesc->{files}->{$file}->{pnt_file};
+
+        print "-- Reading pnt file $filename\n" if $DEBUG;
+
+        my $fh = pnt_open($filename);
+
+        while ( !eof($fh) ) {
+            my $i = read_u32le($fh);
+            my $p = read_u32le($fh);
+
+            $dbdesc->{files}->{$file}->{pnt}->[$i] = $p;
+        }
+
+        close $fh or croak "Can't close $filename";
+
+#        print Dumper $dbdesc->{files}->{$file}->{pnt} if $DEBUG;
+    }
+
 }
 
 sub pnt_dump {
     my $dbdesc = shift @_;
 
-    my @fn = map { $dbdesc->{files}->{$_}->{pnt} } keys %{ $dbdesc->{files} };
+    foreach my $file ( keys %{ $dbdesc->{files} }) {
+        print "-- Dumping pnt file $file $dbdesc->{files}⁻>{$file}->{pnt_file}\n";
 
-    foreach my $filename (@fn) {
-        print "-- Reading pnt file $filename\n";
-        my $fh = pnt_open($filename);
+        if ( defined($dbdesc->{files}->{$file}->{pnt}) ) {
 
-        print "-- Index\n";
-        my $prevoffset=0;
-        while ( !eof($fh) ) {
-            my $i = read_u32le($fh);
-            my $p = read_u32le($fh);
-    
-            my  $len = $p - $prevoffset;
+            print "-- Index\n";
+            my $deleted    = 0;
+            my $prevoffset = 0;
+            my $maxlen     = 0;
+            my $minlen     = 10000000;
+            foreach my $i ( 0 .. scalar( @{$dbdesc->{files}->{$file}->{pnt}} ) ) {
+                my $p = $dbdesc->{files}->{$file}->{pnt}->[$i];
 
-            print "$i : $p ($len)\n";
-            $prevoffset=$p;
+                if (defined $p) {
+                    my $len = $p - $prevoffset;
+                    $maxlen = $len if $len > $maxlen;
+                    $minlen = $len if $len < $minlen && $len != 0;
+                    print "$i : $p ($len)\n";
+
+                    $prevoffset = $p;
+                }
+                else {
+                    $deleted++;
+                    print "$i : deleted\n";
+
+                }
+            }
+            print "minlen : $minlen, maxlen = $maxlen, deleted = $deleted\n";
         }
-
-        close $fh or croak "Can't close $filename";
     }
 
 }
@@ -333,10 +389,61 @@ sub fdt_dump {
 
 }
 
-sub dump_bin {
+sub bin_dump {
     my $dbdesc = shift @_;
-    my @fn = map { $dbdesc->{files}->{$_}->{bin} } keys %{ $dbdesc->{files} };
 
+    my @files = keys %{ $dbdesc->{files} };
+
+    foreach my $file ( @files ) {
+        my $filename = $dbdesc->{files}->{$file}->{bin_file};
+        my $pnt = $dbdesc->{files}->{$file}->{pnt};
+        my $fh = bin_open($filename);
+
+        # Get field pointer from dbdesc
+        my $field = $dbdesc->{ddm_fields};
+        # Get field list
+        my @fields = map { $field->{$1}->{name} } # sort grep m{ \A \d+ \z}imxs,
+        keys %{ $field };
+        print "Fields :", Dumper \@fields;
+        my $nr = 0;
+        while( ! eof($fh) ) {
+            if (defined $pnt->[$nr]) {
+                my $len;
+                if (defined $pnt->[$nr + 1]) {
+                    $len = $pnt->[$nr + 1] - $pnt->[$nr] + 31;
+                }
+                else {
+                    $len = 350;
+                }
+                print "Supposed length of reg : " . ( $pnt->[$nr + 1] - $pnt->[$nr]) . "\n";
+
+                print '-' x 60 . "\n";
+                seek $fh, $pnt->[$nr], SEEK_SET;
+                my $buf;
+                read $fh, $buf, $len;
+                print HexDump $buf;
+
+                seek $fh, $pnt->[$nr], SEEK_SET;
+                print
+                    read_u16le($fh),   " ",
+
+                    read_u32le($fh),   " ",
+                    read_u16le($fh),   " ",
+
+                    read_u16le($fh),   " ",
+                    read_u16le($fh),   " ",
+                    read_zstring($fh),   " ",
+                    "\n"; $len -= 12;
+
+            }
+            else {
+                # print "record $nr seems to be deleted (not offset in pnt)\n";
+                ;
+            }
+
+            $nr++;
+        }
+    }
 }
 
 my $f = shift @ARGV;
@@ -345,6 +452,8 @@ my $f = shift @ARGV;
 my $dbdesc = ddm_read($f);
 
 #ddm_dump($dbdesc);
-fdt_dump($dbdesc);
-pnt_dump($dbdesc);
+#fdt_dump($dbdesc);
+pnt_load($dbdesc);
+#pnt_dump($dbdesc);
+bin_dump($dbdesc);
 
