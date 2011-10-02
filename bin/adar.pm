@@ -13,7 +13,8 @@ our @EXPORT = qw( pnt_open bin_open fdt_open fdt_close
   ddm_read pnt_load pnt_dump ddm_dump fdt_dump
 );
 
-our $DEBUG;
+my $DEBUG;
+$DEBUG = 1;
 
 sub pnt_open {
     my $filename = shift @_;
@@ -215,8 +216,14 @@ my %pnt_method = (
     S => \&read_zstring,
 );
 
+#
+# pnt file format 
+#   index field (could be string (inr), u32le (Duden_F), etc.
+#   pointer into bin file (u32le)
+#
 sub pnt_load {
     my $dbdesc = shift @_;
+print Dumper \%pnt_method;
 
     foreach my $file ( keys %{ $dbdesc->{files} } ) {
         my $filename = $dbdesc->{files}->{$file}->{pnt_file};
@@ -226,25 +233,33 @@ sub pnt_load {
         my $fh = pnt_open($filename);
 
         while ( !eof($fh) ) {
-            my $key = $pnt_method{ $dbdesc->{ddm_fields}->{1}->{type} }->($fh);
-            my $p   = $pnt_method{ $dbdesc->{ddm_fields}->{2}->{type} }->($fh);
+            # Get type of first field, read it from filehandle.
+            my $type = $dbdesc->{ddm_fields}->{1}->{type};
+            my $method = $pnt_method{$type};
+            print Dumper $method;
+#            my $key = $pnt_method{ $dbdesc->{ddm_fields}->{1}->{type} }->($fh);
+            my $key = $method->($fh);
+            my $p   = read_u32le($fh);
+print "--pnt-- key-pointer : $key : $p\n";
 
-            $dbdesc->{files}->{$file}->{pnt}->[$key] = $p;
+            $dbdesc->{files}->{$file}->{pnt}->{$key} = $p;
         }
 
         close $fh or croak "Can't close $filename";
 
-        #        print Dumper $dbdesc->{files}->{$file}->{pnt} if $DEBUG;
     }
 
+    print Dumper $dbdesc if $DEBUG;
 }
+
+
 
 sub pnt_dump {
     my $dbdesc = shift @_;
 
     foreach my $file ( keys %{ $dbdesc->{files} } ) {
         print
-          "-- Dumping pnt file $file $dbdesc->{files}⁻>{$file}->{pnt_file}\n";
+          "-- Dumping pnt file $file " . $dbdesc->{files}->{$file}->{pnt_file} ."\n";
 
         if ( defined( $dbdesc->{files}->{$file}->{pnt} ) ) {
 
@@ -253,11 +268,14 @@ sub pnt_dump {
             my $prevoffset = 0;
             my $maxlen     = 0;
             my $minlen     = 10000000;
+
+            # 
+            # Loop through all possible physical files
+            #
             foreach
               my $i ( 0 .. scalar( @{ $dbdesc->{files}->{$file}->{pnt} } ) )
             {
-                my $p = $dbdesc->{files}->{$file}->{pnt}->[$i];
-
+                my $p = $dbdesc->{files}->{$file}->{pnt}->{$i};
                 if ( defined $p ) {
                     my $len = $p - $prevoffset;
                     $maxlen = $len if $len > $maxlen;
@@ -287,7 +305,15 @@ sub ddm_dump {
 sub fdt_dump {
     my $dbdesc = shift @_;
 
+    print Dumper $dbdesc;
+}
+
+sub fdt_load {
+    my $dbdesc = shift @_;
+
     my @fn = map { $dbdesc->{files}->{$_}->{fdt} } keys %{ $dbdesc->{files} };
+
+    my $fdt =  $dbdesc->{fdt};
 
     foreach my $filename (@fn) {
         if ( !-f $filename ) {
@@ -305,61 +331,57 @@ sub fdt_dump {
         # 8 octets
         #    print read_u8($fh), "\n";
 
-        my $nf;
-        print read_u16le($fh), "\n";
-        print read_u16le($fh), "\n";
-        print $nf = read_u16le($fh), "\n";
-        print read_u16le($fh), "\n";
+        my $unknown=1;
+        print $fdt->{'unknown'.$unknown++} = read_u16le($fh), "\n";
+        print $fdt->{'unknown'.$unknown++} =  read_u16le($fh), "\n";
+        print $fdt->{number_of_fields} = read_u16le($fh), "\n";
+        print $fdt->{'unknown'.$unknown++} = read_u16le($fh), "\n";
 
         # Nom de fichier de données
-        print read_zstring($fh), "\n";
+        print $fdt->{data_file} = read_zstring($fh), "\n";
 
         # extension
-        print read_zstring($fh), "\n";
+        print $fdt->{data_extension} = read_zstring($fh), "\n";
 
         # Nom de fichier d'index
-        print read_zstring($fh), "\n";
+        print $fdt->{index_file} = read_zstring($fh), "\n";
 
         # extension
-        print read_zstring($fh), "\n";
+        print $fdt->{index_extension} =read_zstring($fh), "\n";
 
         print "-- 5 champs 16bit\n";
-        print read_u16le($fh), "\n";
-        print read_u16le($fh), "\n";
-        print read_u16le($fh), "\n";
-        print read_u16le($fh), "\n";
-        print read_u16le($fh), "\n";
+        print $fdt->{'unknown'.$unknown++} = read_u16le($fh), "\n";
+        print $fdt->{'unknown'.$unknown++} = read_u16le($fh), "\n";
+        print $fdt->{'unknown'.$unknown++} = read_u16le($fh), "\n";
+        print $fdt->{'unknown'.$unknown++} = read_u16le($fh), "\n";
+        print $fdt->{'unknown'.$unknown++} = read_u16le($fh), "\n";
 
         # premier champ
         print "-- Premier champ ??\n";
-        my $fieldname = read_char($fh) . read_char($fh);
-        print "$filename :",
-          read_u16le($fh), " ",
-          read_u16le($fh), " ",
-          read_u16le($fh), " ",
-          read_u16le($fh), " ",
-          read_u16le($fh), "\n";
-
-        my %field;
+        my $keyfield = read_char($fh) . read_char($fh);
+        $fdt->{'key?'} = $keyfield;
+        push @{$fdt->{keyfield}}, read_u16le($fh),;
+        push @{$fdt->{keyfield}}, read_u16le($fh),;
+        push @{$fdt->{keyfield}}, read_u16le($fh),;
+        push @{$fdt->{keyfield}}, read_u16le($fh),;
+        push @{$fdt->{keyfield}}, read_u16le($fh),;
 
         # Description des champs
         print "-- Description des champs\n";
-        for my $i ( 1 .. $nf ) {
+        for my $i ( 1 .. $fdt->{number_of_fields} ) {
 
             # nom du champ (zstring ?)
             my $fieldname = read_zstring($fh);
-            print "$fieldname : ",
-              read_u16le($fh), " ",
-              read_u16le($fh), " ",
-              read_u16le($fh), " ",
-              read_u16le($fh), " ",
-              read_u16le($fh), " ",
-              "\n";
+            push @{$fdt->{$fieldname}}, read_u16le($fh); # field len
+            push @{$fdt->{$fieldname}}, read_u16le($fh);
+            push @{$fdt->{$fieldname}}, read_u16le($fh);
+            push @{$fdt->{$fieldname}}, read_u16le($fh);
+            push @{$fdt->{$fieldname}}, read_u16le($fh);
         }
 
         # informations sur les champs ou index ??
         print "-- Informations sur les champs ou index\n";
-        for my $i ( 1 .. $nf ) {
+        for my $i ( 1 .. $fdt->{number_of_fields} ) {
             print read_u16le($fh),   " ",
               print read_u16le($fh), " ",
               print read_u16le($fh), " ",
@@ -371,7 +393,7 @@ sub fdt_dump {
 
         # Description des colonnes
         print "-- Description des colonnes\n";
-        foreach my $i ( 1 .. $nf ) {
+        foreach my $i ( 1 .. $fdt->{number_of_fields} ) {
             print read_lstring($fh), "\n";
         }
     }
