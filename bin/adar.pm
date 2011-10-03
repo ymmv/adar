@@ -66,6 +66,13 @@ sub fdt_close {
     close $fh or croak "Couldn't close file: $!\n";
 }
 
+
+sub pnt_close {
+    my $fh = shift @_;
+
+    close $fh or croak "Couldn't close file: $!\n";
+}
+
 sub read_zstring {
     my $fh      = shift @_;
     my $content = 0;
@@ -260,7 +267,7 @@ sub pnt_load {
             $dbdesc->{files}->{$file}->{pnt}->{$key} = $p;
         }
 
-        close $fh or croak "Can't close $filename";
+        pnt_close( $fh );
     }
 
     print Dumper $dbdesc if $DEBUG;
