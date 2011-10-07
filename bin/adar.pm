@@ -3,6 +3,7 @@ package adar;
 use strict;
 use warnings;
 use Carp;
+use File::Basename;
 use Data::Dumper;
 use Exporter qw(import);
 use Fcntl qw( :DEFAULT :seek );
@@ -65,7 +66,6 @@ sub fdt_close {
 
     close $fh or croak "Couldn't close file: $!\n";
 }
-
 
 sub pnt_close {
     my $fh = shift @_;
@@ -187,6 +187,7 @@ sub ddm_read {
     }
 
     # Implant bin and pnt files in %dbdesc for each fdt.
+
 =pod
     foreach my $fnr ( keys %{ $dbdesc->{files} } ) {
         if ( defined $fnr ) {
@@ -232,7 +233,7 @@ sub ddm_read {
 my %pnt_method = (
     D => \&read_u32le,
     K => \&read_u32le,
-    S => \&read_zstring,
+    S => \&read_fstring,
 );
 
 #
@@ -250,67 +251,65 @@ sub pnt_load {
 
         my $fh = pnt_open($filename);
 
+        my $type   = $dbdesc->{ddm_fields}->{1}->{type};
+        my $method = $pnt_method{$type};
+        print Dumper $method;
+
+        my $keyname   = $dbdesc->{files}->{$file}->{key};
+        my $field_len = $dbdesc->{files}->{$file}->{fields}->{$keyname}->{len};
+
         while ( !eof($fh) ) {
 
             # Get type of first field, read it from filehandle.
-            my $type   = $dbdesc->{ddm_fields}->{1}->{type};
-            my $method = $pnt_method{$type};
+            my $key = $method->( $fh, $field_len );
 
-#            my $key = $pnt_method{ $dbdesc->{ddm_fields}->{1}->{type} }->($fh);
-            my $keyname = $dbdesc->{files}->{$file}->{key};
-            my $field_len = $dbdesc->{files}->{$file}->{fields}->{$keyname}->{len};
-            my $key       = $method->($fh, $field_len);
-            my $p         = read_u32le($fh);
+            # Then read position in data file
+            my $p = read_u32le($fh);
 
-            #print "--pnt-- key-pointer : $key : $p\n";
+            #           print "--pnt-- key-pointer : $key($field_len) : $p\n";
 
             $dbdesc->{files}->{$file}->{pnt}->{$key} = $p;
         }
 
-        pnt_close( $fh );
+        pnt_close($fh);
     }
 
-    print Dumper $dbdesc if $DEBUG;
+    #    print Dumper $dbdesc if $DEBUG;
 }
 
 sub pnt_dump {
     my $dbdesc = shift @_;
 
+    #
+    # Loop through all possible physical files
+    #
     foreach my $file ( keys %{ $dbdesc->{files} } ) {
         print "-- Dumping pnt file $file "
           . $dbdesc->{files}->{$file}->{pnt_file} . "\n";
 
-        if ( defined( $dbdesc->{files}->{$file}->{pnt} ) ) {
+        my $deleted    = 0;
+        my $prevoffset = 0;
+        my $maxlen     = 0;
+        my $minlen     = 10000000;
 
-            print "-- Index\n";
-            my $deleted    = 0;
-            my $prevoffset = 0;
-            my $maxlen     = 0;
-            my $minlen     = 10000000;
+        my $pnt = $dbdesc->{files}->{$file}->{pnt}; 
+        foreach my $i ( sort { $pnt->{$a} <=> $pnt->{$b} }  keys %{$pnt} ) {
+            my $p = $pnt->{$i};
+            if ( defined $p ) {
+                my $len = $p - $prevoffset;
+                $maxlen = $len if $len > $maxlen;
+                $minlen = $len if $len < $minlen && $len != 0;
+                print "$i : $p ($len)\n";
 
-            #
-            # Loop through all possible physical files
-            #
-            foreach
-              my $i ( 0 .. scalar( @{ $dbdesc->{files}->{$file}->{pnt} } ) )
-            {
-                my $p = $dbdesc->{files}->{$file}->{pnt}->{$i};
-                if ( defined $p ) {
-                    my $len = $p - $prevoffset;
-                    $maxlen = $len if $len > $maxlen;
-                    $minlen = $len if $len < $minlen && $len != 0;
-                    print "$i : $p ($len)\n";
-
-                    $prevoffset = $p;
-                }
-                else {
-                    $deleted++;
-                    print "$i : deleted\n";
-
-                }
+                $prevoffset = $p;
             }
-            print "minlen : $minlen, maxlen = $maxlen, deleted = $deleted\n";
+            else {
+                $deleted++;
+                print "$i : deleted\n";
+
+            }
         }
+        print "minlen : $minlen, maxlen = $maxlen, deleted = $deleted\n";
     }
 
 }
@@ -403,7 +402,7 @@ sub fdt_load {
 
             # nom du champ (zstring ?)
             my $fieldname = read_zstring($fh);
-            $fdt->{$fieldname}->{len}= read_u16le($fh);    # field len
+            $fdt->{$fieldname}->{len} = read_u16le($fh);    # field len
             push @{ $fdt->{$fieldname}->{info} }, read_u16le($fh);
             push @{ $fdt->{$fieldname}->{info} }, read_u16le($fh);
             push @{ $fdt->{$fieldname}->{info} }, read_u16le($fh);
@@ -416,33 +415,34 @@ sub fdt_load {
         for my $i ( 1 .. $dbdesc->{files}->{$file}->{number_of_fields} ) {
             my $fieldname = $dbdesc->{ddm_fields}->{$i}->{name};
 
-           
-            $fdt->{$fieldname}->{more_info}->{i1} = read_u16le($fh); 
-            $fdt->{$fieldname}->{more_info}->{i2} = read_u16le($fh); 
-            $fdt->{$fieldname}->{more_info}->{i3} = read_u16le($fh); 
-            $fdt->{$fieldname}->{more_info}->{i4} = read_u16le($fh); 
+            $fdt->{$fieldname}->{more_info}->{i1} = read_u16le($fh);
+            $fdt->{$fieldname}->{more_info}->{i2} = read_u16le($fh);
+            $fdt->{$fieldname}->{more_info}->{i3} = read_u16le($fh);
+            $fdt->{$fieldname}->{more_info}->{i4} = read_u16le($fh);
         }
 
-        
-        $dbdesc->{files}->{$file}->{ 'unknown' . $unknown++ } = read_u16le($fh), "\n";
+        $dbdesc->{files}->{$file}->{ 'unknown' . $unknown++ } = read_u16le($fh),
+          "\n";
 
         # Description des colonnes
         foreach my $i ( 1 .. $dbdesc->{files}->{$file}->{number_of_fields} ) {
             my $fieldname = $dbdesc->{ddm_fields}->{$i}->{name};
-            $fdt->{ $fieldname }->{desc} = read_lstring($fh);
+            $fdt->{$fieldname}->{desc} = read_lstring($fh);
         }
         $dbdesc->{files}->{$file}->{fields} = $fdt;
 
-        # 
+        #
         # Are we done on this file ?
         #
         my $cur = tell $fh;
+
         # set at the end
         seek $fh, 0, SEEK_END;
         my $end = tell $fh;
-        carp "Still " . $end-$cur . " bytes to read on $filename"
-            if $end != $cur;
-#        close $fh; 
+        carp "Still " . $end - $cur . " bytes to read on $filename"
+          if $end != $cur;
+
+        #        close $fh;
     }
 
     return $dbdesc;

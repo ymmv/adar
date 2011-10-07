@@ -30,6 +30,7 @@ use adar;
 =cut
 
 our $DEBUG = 1;
+
 =pod
 sub bin_dump {
     my $dbdesc = shift @_;
@@ -90,14 +91,18 @@ sub bin_dump {
     }
 }
 =cut
+
 my $f = shift @ARGV;
 
 # First, open .ddm file
 my $dbdesc = ddm_read($f);
 
 ddm_dump($dbdesc);
+fdt_load($dbdesc);
 fdt_dump($dbdesc);
+print "Avant pnt_load\n";
 pnt_load($dbdesc);
+print "Apres pnt_load\n";
 pnt_dump($dbdesc);
 #bin_dump($dbdesc);
 
