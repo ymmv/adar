@@ -157,10 +157,119 @@ sub read_u32be {
     return $val;
 }
 
+=head1 C<DDM> file format
+
+A DDF file can have multiple sections :
+
+=head2 C<[VARIABLE]>
+
+This C<VARIABLE> section defines variables inside the DDM file. These
+variables will be substituted when enclosed in C<%%>, such as C<%A0%>.
+
+Reference : L<http://pardubickykuryr.eu/etka/DATA/SE/Z_FPreis.ddf>
+
+=head2 C<FILE[\d]+>
+
+When it exists (not in all DDF files), it does define the list of all
+FDT files with the same format carrying the data.
+FDT files are then pointers to real data.
+
+=over 4
+
+=item * fdt=filename.fdt
+
+FDT file.
+
+=item * ddf=filename.ddf
+
+DDF file, when not described inside the DDM file.
+
+=item * gcx=filename.ddf
+
+GCX (FIXME : field grouping information?) when not defined inside the
+DDM file.
+
+=item * buflen=\d+
+
+Size of buffer to read FDT ? BIN file ?
+
+=back
+
+=head2 C<DDF> : Data Definition
+
+This section, present when no C<ddf> key is present from the C<FILE>
+section, will help define data and type.
+
+It holds field name, type, and can see VARIABLE expansion. Format
+seems pretty relaxed, with either number as a key, or directly field
+name. FIXME: Reading it in sequence seems to be better, as we can have
+variable names as keys, and will not help for field order. We may have
+to switch to customer .ini file reading module to get order (currently
+using L<Config::IniFiles>).
+
+When the field number is present, it represent an index in the field
+definition table (FDT file).
+
+=over 4
+
+=list * cnt=\d+ : number of fields in the file
+
+=list * {?:\d+|[\w\d]+}=fieldname,format ([A-Z])
+
+Short version (usually spotted directly in DDM file).
+
+=list * {?:\d+|[\w\d]+}=fieldname,key,format ([1|2|4|5|6]),duden ([0|1]),string terminieren([0|1])
+
+Long version (usually spotted directly in a DDF file referenced by a
+DDM file).
+
+=back
+
+=head2 Key
+
+1 if field is a key, 0 otherwise.
+
+=head2 Field format (types)
+
+=over 4
+
+=list * 1|S : String
+
+NUL terminated string.
+
+=list * 2|I : Integer
+
+16 bit little endian integer.
+
+=list * 4|D : Long
+
+32 bit little endian integer.
+
+=list * 5|B : Byte
+
+=list * 6|K : Kurzer String (short string).
+
+Not a NUL terminated it seems (FIXME, to check and test with FDT
+binary fields if I can find some examples), one will need field length
+(from FDT file) to read it.
+
+=over
+
+=head2 duden
+
+1 for true, 0 otherwise. But, FIXME, what is duden ???
+
+=head2 String terminieren
+
+1 for true, 0 otherwise.
+
+=cut
+
 sub ddm_read {
     my $filename = shift @_;
     my $dbdesc   = {};
 
+    croak "undefined file name" if not defined $filename;
     if ( !-f $filename ) {
         if ( -f $filename . '.ddm' ) {
             $filename = $filename . '.ddm';
@@ -292,8 +401,8 @@ sub pnt_dump {
         my $maxlen     = 0;
         my $minlen     = 10000000;
 
-        my $pnt = $dbdesc->{files}->{$file}->{pnt}; 
-        foreach my $i ( sort { $pnt->{$a} <=> $pnt->{$b} }  keys %{$pnt} ) {
+        my $pnt = $dbdesc->{files}->{$file}->{pnt};
+        foreach my $i ( sort { $pnt->{$a} <=> $pnt->{$b} } keys %{$pnt} ) {
             my $p = $pnt->{$i};
             if ( defined $p ) {
                 my $len = $p - $prevoffset;
@@ -415,19 +524,18 @@ sub fdt_load {
         for my $i ( 1 .. $dbdesc->{files}->{$file}->{number_of_fields} ) {
             my $fieldname = $dbdesc->{ddm_fields}->{$i}->{name};
 
-            $fdt->{$fieldname}->{more_info}->{i1} = read_u16le($fh);
-            $fdt->{$fieldname}->{more_info}->{i2} = read_u16le($fh);
-            $fdt->{$fieldname}->{more_info}->{i3} = read_u16le($fh);
-            $fdt->{$fieldname}->{more_info}->{i4} = read_u16le($fh);
+            $fdt->{more_info}->{i1} = read_u16le($fh);
+            $fdt->{more_info}->{i2} = read_u16le($fh);
+            $fdt->{more_info}->{i3} = read_u16le($fh);
+            $fdt->{more_info}->{i4} = read_u16le($fh);
         }
 
-        $dbdesc->{files}->{$file}->{ 'unknown' . $unknown++ } = read_u16le($fh),
-          "\n";
+        $dbdesc->{files}->{$file}->{ 'unknown' . $unknown++ } = read_u16le($fh);
 
         # Description des colonnes
         foreach my $i ( 1 .. $dbdesc->{files}->{$file}->{number_of_fields} ) {
             my $fieldname = $dbdesc->{ddm_fields}->{$i}->{name};
-            $fdt->{$fieldname}->{desc} = read_lstring($fh);
+            $fdt->{desc} = read_lstring($fh);
         }
         $dbdesc->{files}->{$file}->{fields} = $fdt;
 
