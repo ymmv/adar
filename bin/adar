@@ -109,7 +109,7 @@ sub bin_dump {
 =cut
 
 my %opt;
-getopt('dPFDBh', \%opt);
+getopts('dPFDBh', \%opt);
 
 $DEBUG = 1 if defined $opt{d};
 $DUMP_PNT = 1 if defined $opt{P};
