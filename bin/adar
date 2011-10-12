@@ -5,7 +5,6 @@ use warnings;
 use Carp;
 use Config::IniFiles;
 use Data::Dumper;
-use Data::HexDump;
 use Getopt::Std;
 use Fcntl qw( :DEFAULT :seek );
 use lib qw(/home/jfenal/dev/adar/bin);
@@ -45,68 +44,9 @@ Options :
   -B : dump BIN file
 
 EOF
+
+    return 0;
 }
-
-=pod
-sub bin_dump {
-    my $dbdesc = shift @_;
-
-    my @files = keys %{ $dbdesc->{files} };
-
-    foreach my $file ( @files ) {
-        my $filename = $dbdesc->{files}->{$file}->{bin_file};
-        my $pnt = $dbdesc->{files}->{$file}->{pnt};
-        my $fh = bin_open($filename);
-
-        # Get field pointer from dbdesc
-        my $field = $dbdesc->{ddm_fields};
-        # Get field list
-        my @fields = map { $field->{$_}->{name} } grep m{ \A \d+ \z}imxs, keys %{ $field };
-        print "Fields :", Dumper \@fields;
-        foreach my $f (@fields) {
-            print "$f : type=$field->{$_}->{type}\n";
-        }
-        my $nr = 0;
-        while( ! eof($fh) ) {
-            if (defined $pnt->[$nr]) {
-                my $len;
-                if (defined $pnt->[$nr + 1]) {
-                    $len = $pnt->[$nr + 1] - $pnt->[$nr] + 31;
-                }
-                else {
-                    $len = 350;
-                }
-                print "Supposed length of reg : " . ( $pnt->[$nr + 1] - $pnt->[$nr]) . "\n";
-
-                print '-' x 60 . "\n";
-                seek $fh, $pnt->[$nr], SEEK_SET;
-                my $buf;
-                read $fh, $buf, $len;
-                print HexDump $buf;
-
-                seek $fh, $pnt->[$nr], SEEK_SET;
-                print
-                    read_u16le($fh),   " ",
-
-                    read_u32le($fh),   " ",
-                    read_u16le($fh),   " ",
-
-                    read_u16le($fh),   " ",
-                    read_u16le($fh),   " ",
-                    read_zstring($fh),   " ",
-                    "\n"; $len -= 12;
-
-            }
-            else {
-                # print "record $nr seems to be deleted (not offset in pnt)\n";
-                ;
-            }
-
-            $nr++;
-        }
-    }
-}
-=cut
 
 my %opt;
 getopts('dPFDBh', \%opt);
@@ -117,7 +57,10 @@ $DUMP_FDT = 1 if defined $opt{F};
 $DUMP_DDM = 1 if defined $opt{D};
 $DUMP_BIN = 1 if defined $opt{B};
 
-usage if defined $opt{h};
+if (defined $opt{h}) {
+    usage;
+    exit 0;
+}
 
 my $f = shift @ARGV;
 
@@ -127,9 +70,7 @@ my $dbdesc = ddm_read($f);
 ddm_dump($dbdesc) if $DUMP_DDM;
 fdt_load($dbdesc);
 fdt_dump($dbdesc) if $DUMP_FDT;
-print "Avant pnt_load\n";
 pnt_load($dbdesc);
-print "Apres pnt_load\n";
 pnt_dump($dbdesc) if $DUMP_PNT;
-#bin_dump($dbdesc) if $DUMP_BIN;
+bin_dump($dbdesc) if $DUMP_BIN;
 
