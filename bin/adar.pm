@@ -1,20 +1,54 @@
 package adar;
-
 use strict;
 use warnings;
+
+=head1 NAME
+
+adar - Read and dump pseudo-Adabas content files found in PET & EKTA
+
+=head1 VERSION
+
+This is version 0.01
+
+=cut
+
+my $VERSION = '0.01';
+
+=head1 SYNOPSIS
+
+  use adar;
+  my $dbdesc = ddm_read($f);
+  ddm_dump($dbdesc);
+  fdt_load($dbdesc);
+  fdt_dump($dbdesc);
+  pnt_load($dbdesc);
+  pnt_dump($dbdesc);
+  bin_dump($dbdesc);
+
+=head1 DESCRIPTION
+
+TODO
+
+=head1 SUBROUTINES/METHODS
+
+=cut
+
+#use encoding 'iso-8859-1', STDOUT => "utf-8";
+use English qw( -no_match_vars );
+use Encode qw( :all );
 use Carp;
 use File::Basename;
 use Data::Dumper;
+use Data::HexDump;
 use Exporter qw(import);
 use Fcntl qw( :DEFAULT :seek );
 
 our @ISA    = qw(Exporter);
-our @EXPORT = (
-    'pnt_open',     'bin_open',     'fdt_open',     'fdt_close',
-    'read_lstring', 'read_zstring', 'read_fstring', 'read_char',
-    'read_u8',      'read_u16le',   'read_u16be',   'read_u32le',
-    'read_u32be',   'ddm_read',     'pnt_load',     'pnt_dump',
-    'ddm_dump',     'fdt_dump',     'fdt_load',
+our @EXPORT = qw(
+  read_lstring read_zstring read_fstring read_char
+  read_u8      read_u16le   read_u16be   read_u32le
+  read_u32be   ddm_read     pnt_load     pnt_dump
+  ddm_dump     fdt_dump     fdt_load     bin_dump
 );
 
 sub my_filter {
@@ -22,107 +56,84 @@ sub my_filter {
 
     # return an array ref containing the hash keys to dump
     # in the order that you want them to be dumped
-    return [ ( sort keys %$hash ) ];
+    return [ ( sort keys %{$hash} ) ];
 
 }
+
+my %data_method = (
+    D => \&read_u32le,
+    S => \&read_lstring,
+    K => \&read_lkstring,
+    I => \&read_u16le,
+    B => \&read_u8,
+);
 
 $Data::Dumper::Sortkeys = \&my_filter;
 
-my $DEBUG;
-$DEBUG = 1;
-
-sub pnt_open {
-    my $filename = shift @_;
-
-    my $fh;
-    open $fh, '<', $filename or croak "Couldn't open file $filename: $!\n";
-    binmode $fh;
-
-    return $fh;
-}
-
-sub bin_open {
-    my $filename = shift @_;
-
-    my $fh;
-    open $fh, '<', $filename or croak "Couldn't open file $filename: $!\n";
-    binmode $fh;
-
-    return $fh;
-}
-
-sub fdt_open {
-    my $filename = shift @_;
-
-    my $fh;
-    open $fh, '<', $filename or croak "Couldn't open file $filename: $!\n";
-    binmode $fh;
-
-    return $fh;
-}
-
-sub fdt_close {
-    my $fh = shift @_;
-
-    close $fh or croak "Couldn't close file: $!\n";
-}
-
-sub pnt_close {
-    my $fh = shift @_;
-
-    close $fh or croak "Couldn't close file: $!\n";
-}
+our $DEBUG;
 
 sub read_zstring {
-    my $fh      = shift @_;
+    my ($fh) = @_;
     my $content = 0;
 
-    my $text = '';
+    my $text = q();
   ZSTRING:
     while ( read( $fh, $content, 1 ) ) {
         my $c = unpack 'C', $content;
         last ZSTRING if !$c;
-        $text .= $content,;
+        $text .= $content;
     }
 
     return $text;
 }
 
+sub read_lkstring {
+    my ($fh) = @_;
+
+    my $l = read_u8($fh);
+    my $text = read_fstring( $fh, $l );
+
+    return $text;
+}
+
 sub read_lstring {
-    my $fh = shift @_;
+    my ($fh) = @_;
 
-    my $l    = read_u16le($fh);
-    my $text = read_zstring($fh);
+    my $l = read_u16le($fh);
+    my $text = read_fstring( $fh, $l );
 
-    croak "input not an lstring : length($text) != $l"
-      if $l != 1 + length($text);
+    # Chop trailing \0 if any
+    if ( ord( substr( $text, -1, 1 ) ) == 0 ) {
+        chop $text;
+    }
+
     return $text;
 }
 
 sub read_fstring {
     my ( $fh, $l ) = @_;
 
-    my $text = '';
+    my $text = q();
     read $fh, $text, $l;
 
     return $text;
 }
 
 sub read_char {
-    my $fh = shift @_;
+    my ($fh) = @_;
     read $fh, my $content, 1;
     return $content;
 }
 
 sub read_u8 {
-    my $fh = shift @_;
+    my ($fh) = @_;
     read $fh, my $content, 1;
     my $val = unpack 'C', $content;
     return $val;
 }
 
 sub read_u16le {
-    my $fh = shift @_;
+    my ($fh) = @_;
 
     read $fh, my $content, 2;
     my $val = unpack 'v', $content;
@@ -131,7 +142,7 @@ sub read_u16le {
 }
 
 sub read_u16be {
-    my $fh = shift @_;
+    my ($fh) = @_;
 
     read $fh, my $content, 2;
     my $val = unpack 'n', $content;
@@ -140,7 +151,7 @@ sub read_u16be {
 }
 
 sub read_u32le {
-    my $fh = shift @_;
+    my ($fh) = @_;
 
     read $fh, my $content, 4;
     my $val = unpack 'V', $content;
@@ -149,7 +160,7 @@ sub read_u32le {
 }
 
 sub read_u32be {
-    my $fh = shift @_;
+    my ($fh) = @_;
 
     read $fh, my $content, 4;
     my $val = unpack 'V', $content;
@@ -174,7 +185,7 @@ When it exists (not in all DDF files), it does define the list of all
 FDT files with the same format carrying the data.
 FDT files are then pointers to real data.
 
-=over 4
+=over 2
 
 =item * fdt=filename.fdt
 
@@ -210,15 +221,15 @@ using L<Config::IniFiles>).
 When the field number is present, it represent an index in the field
 definition table (FDT file).
 
-=over 4
+=over 2
 
-=list * cnt=\d+ : number of fields in the file
+=item * cnt=\d+ : number of fields in the file
 
-=list * {?:\d+|[\w\d]+}=fieldname,format ([A-Z])
+=item * {?:\d+|[\w\d]+}=fieldname,format ([A-Z])
 
 Short version (usually spotted directly in DDM file).
 
-=list * {?:\d+|[\w\d]+}=fieldname,key,format ([1|2|4|5|6]),duden ([0|1]),string terminieren([0|1])
+=item * {?:\d+|[\w\d]+}=fieldname,key,format ([1|2|4|5|6]),duden ([0|1]),string terminieren([0|1])
 
 Long version (usually spotted directly in a DDF file referenced by a
 DDM file).
@@ -231,29 +242,39 @@ DDM file).
 
 =head2 Field format (types)
 
-=over 4
+=over 2
 
-=list * 1|S : String
+=item *
+
+1|S : String
 
 NUL terminated string.
 
-=list * 2|I : Integer
+=item *
+
+2|I : Integer
 
 16 bit little endian integer.
 
-=list * 4|D : Long
+=item *
+
+4|D : Long
 
 32 bit little endian integer.
 
-=list * 5|B : Byte
+=item *
 
-=list * 6|K : Kurzer String (short string).
+5|B : Byte
+
+=item *
+
+6|K : Kurzer String (short string).
 
 Not a NUL terminated it seems (FIXME, to check and test with FDT
 binary fields if I can find some examples), one will need field length
 (from FDT file) to read it.
 
-=over
+=back
 
 =head2 duden
 
@@ -266,8 +287,8 @@ binary fields if I can find some examples), one will need field length
 =cut
 
 sub ddm_read {
-    my $filename = shift @_;
-    my $dbdesc   = {};
+    my ($filename) = @_;
+    my $dbdesc = {};
 
     croak "undefined file name" if not defined $filename;
     if ( !-f $filename ) {
@@ -283,33 +304,22 @@ sub ddm_read {
 
     # FILE* sections
     my @sections = $cfg->Sections;
-    print 'Sections ' . Dumper \@sections;
-    my @s = grep /^FILE/, @sections;
-    print 'FILE Sections ' . Dumper \@s;
+    if ($DEBUG) {
+        print 'Sections ' . Dumper \@sections;
+    }
+    my @s = grep { m{ \A FILE }mxs } @sections;
+
+    if ($DEBUG) {
+        print 'FILE Sections ' . Dumper \@s;
+    }
 
     # Feed the {files} subhash with what is present in the ddm, mainly
     # fdt file names
-    foreach my $s ( grep /^FILE/, @sections ) {
+    foreach my $s ( grep { m{ \A FILE }mxs } @sections ) {
         foreach my $p ( $cfg->Parameters($s) ) {
             $dbdesc->{files}->{$s}->{$p} = $cfg->val( $s, $p );
         }
     }
-
-    # Implant bin and pnt files in %dbdesc for each fdt.
-
-=pod
-    foreach my $fnr ( keys %{ $dbdesc->{files} } ) {
-        if ( defined $fnr ) {
-            my $basename = $dbdesc->{files}->{$fnr}->{fdt_fields};
-            $basename =~ s/\.fdt$/.bin/;
-            $dbdesc->{files}->{$fnr}->{bin_file} = $basename
-              if not defined $dbdesc->{files}->{$fnr}->{bin_file};
-            $basename =~ s/\.bin$/.pnt/;
-            $dbdesc->{files}->{$fnr}->{pnt_file} = $basename
-              if not defined $dbdesc->{files}->{$fnr}->{pnt_file};
-        }
-    }
-=cut
 
     # DDF section
     my $count;
@@ -326,43 +336,56 @@ sub ddm_read {
                     $comment =~ s{ \A \s* [;] \s* }{}imxs;
                 }
             }
-            $dbdesc->{ddm_fields}->{$p}->{name}    = $field;
-            $dbdesc->{ddm_fields}->{$p}->{type}    = $type;
-            $dbdesc->{ddm_fields}->{$p}->{comment} = $comment
-              if defined $comment;
+            $dbdesc->{ddm_fields}->{$p}->{name} = $field;
+            $dbdesc->{ddm_fields}->{$p}->{type} = $type;
+            if ( defined $comment ) {
+                $dbdesc->{ddm_fields}->{$p}->{comment} = $comment;
+            }
             $dbdesc->{ddm_fields}->{$field}->{type} = $type;
         }
     }
 
-    #    print Dumper \%dbdesc if $DEBUG;
-
     return $dbdesc;
 }
 
-my %pnt_method = (
-    D => \&read_u32le,
-    K => \&read_u32le,
-    S => \&read_fstring,
-);
+=head2 pnt_load
 
-#
-# pnt file format
-#   index field (could be string (inr), u32le (Duden_F), etc.
-#   pointer into bin file (u32le)
-#
+Load pointer file.
+
+PNT file format : 2 fields per record.
+
+=over 4
+
+=item * index field
+
+Could be string (inr), u32le (Duden_F), etc.
+
+=item * pointer into bin file
+
+u32le
+
+=back
+
+=cut
+
 sub pnt_load {
-    my $dbdesc = shift @_;
+    my ($dbdesc) = @_;
 
     foreach my $file ( keys %{ $dbdesc->{files} } ) {
         my $filename = $dbdesc->{files}->{$file}->{index_file};
 
-        print "-- Reading pnt file $filename\n" if $DEBUG;
+        if ($DEBUG) {
+            print "-- Reading pnt file $filename\n";
+        }
 
-        my $fh = pnt_open($filename);
+        my $fh;
+        if ( !open $fh, '<', $filename ) {
+            croak "Couldn't open file $filename: $ERRNO\n";
+        }
+        binmode $fh;
 
         my $type   = $dbdesc->{ddm_fields}->{1}->{type};
-        my $method = $pnt_method{$type};
-        print Dumper $method;
+        my $method = $data_method{$type};
 
         my $keyname   = $dbdesc->{files}->{$file}->{key};
         my $field_len = $dbdesc->{files}->{$file}->{fields}->{$keyname}->{len};
@@ -380,14 +403,17 @@ sub pnt_load {
             $dbdesc->{files}->{$file}->{pnt}->{$key} = $p;
         }
 
-        pnt_close($fh);
+        if ( !close($fh) ) {
+            croak "Cannot close $filename";
+        }
     }
 
     #    print Dumper $dbdesc if $DEBUG;
+    return $dbdesc;
 }
 
 sub pnt_dump {
-    my $dbdesc = shift @_;
+    my ($dbdesc) = @_;
 
     #
     # Loop through all possible physical files
@@ -406,8 +432,14 @@ sub pnt_dump {
             my $p = $pnt->{$i};
             if ( defined $p ) {
                 my $len = $p - $prevoffset;
-                $maxlen = $len if $len > $maxlen;
-                $minlen = $len if $len < $minlen && $len != 0;
+
+                if ( $len > $maxlen ) {
+                    $maxlen = $len;
+                }
+                if ( $len < $minlen && $len != 0 ) {
+                    $minlen = $len;
+                }
+
                 print "$i : $p ($len)\n";
 
                 $prevoffset = $p;
@@ -421,22 +453,33 @@ sub pnt_dump {
         print "minlen : $minlen, maxlen = $maxlen, deleted = $deleted\n";
     }
 
+    return $dbdesc;
 }
 
 sub ddm_dump {
-    my $dbdesc = shift @_;
+    my ($dbdesc) = @_;
 
     print Dumper $dbdesc;
+
+    return $dbdesc;
 }
 
 sub fdt_dump {
-    my $dbdesc = shift @_;
+    my ($dbdesc) = @_;
 
     print Dumper $dbdesc;
+
+    return $dbdesc;
 }
 
+=head2 fdt_load
+
+Read & load FDT information from the FDT file
+
+=cut
+
 sub fdt_load {
-    my $dbdesc = shift @_;
+    my ($dbdesc) = @_;
 
     foreach my $file ( keys %{ $dbdesc->{files} } ) {
         my $filename = $dbdesc->{files}->{$file}->{fdt};
@@ -447,7 +490,11 @@ sub fdt_load {
             }
         }
 
-        my $fh = fdt_open($filename);
+        my $fh;
+        if ( !open $fh, '<', $filename ) {
+            croak "Couldn't open file $filename: $ERRNO\n";
+        }
+        binmode $fh;
 
         my $fdt = {};
 
@@ -465,7 +512,7 @@ sub fdt_load {
         $dbdesc->{files}->{$file}->{ 'unknown' . $unknown++ } = read_u16le($fh);
 
         #
-        # Nom de fichier de données
+        # data filename
         #
         $dbdesc->{files}->{$file}->{data_file} = read_zstring($fh);
 
@@ -475,7 +522,7 @@ sub fdt_load {
         $dbdesc->{files}->{$file}->{data_extension} = read_zstring($fh);
 
         #
-        # Nom de fichier d'index
+        # Index filename
         #
         $dbdesc->{files}->{$file}->{index_file} = read_zstring($fh);
 
@@ -485,7 +532,7 @@ sub fdt_load {
         $dbdesc->{files}->{$file}->{index_extension} = read_zstring($fh);
 
         #
-        # 5 champs 16bit
+        # 5 16bit fields
         #
         $dbdesc->{files}->{$file}->{ 'unknown' . $unknown++ } = read_u16le($fh);
         $dbdesc->{files}->{$file}->{ 'unknown' . $unknown++ } = read_u16le($fh);
@@ -505,52 +552,125 @@ sub fdt_load {
         push @{ $dbdesc->{files}->{$file}->{keyfield} }, read_u16le($fh),;
 
         #
-        # Description des champs
+        # Field description
         #
         for my $i ( 1 .. $dbdesc->{files}->{$file}->{number_of_fields} ) {
 
-            # nom du champ (zstring ?)
+            # fieldname (zstring ?)
             my $fieldname = read_zstring($fh);
+
+            $dbdesc->{files}->{$file}->{fields}->[$i] = $fieldname;
+
+            # get type (if defined) from DDM
+            if ( defined $dbdesc->{ddm_fields}->{$fieldname}->{type} ) {
+                $fdt->{$fieldname}->{type} =
+                  $dbdesc->{ddm_fields}->{$fieldname}->{type};
+            }
+
+            # Read field len (in bytes)
             $fdt->{$fieldname}->{len} = read_u16le($fh);    # field len
-            push @{ $fdt->{$fieldname}->{info} }, read_u16le($fh);
-            push @{ $fdt->{$fieldname}->{info} }, read_u16le($fh);
-            push @{ $fdt->{$fieldname}->{info} }, read_u16le($fh);
-            push @{ $fdt->{$fieldname}->{info} }, read_u16le($fh);
+
+            # 4 unknown 16 bit integers (or 8 8bit, or combination, etc.)
+            for ( 1 .. 4 ) {
+                push @{ $fdt->{$fieldname}->{info} }, read_u16le($fh);
+            }
         }
 
         #
         # Informations sur les champs ou index ??
         #
         for my $i ( 1 .. $dbdesc->{files}->{$file}->{number_of_fields} ) {
-            my $fieldname = $dbdesc->{ddm_fields}->{$i}->{name};
+            my $fieldname = $dbdesc->{files}->{$file}->{fields}->[$i];
 
-            $fdt->{more_info}->{i1} = read_u16le($fh);
-            $fdt->{more_info}->{i2} = read_u16le($fh);
-            $fdt->{more_info}->{i3} = read_u16le($fh);
-            $fdt->{more_info}->{i4} = read_u16le($fh);
+            #
+            # 4 unknown 16 bit integers
+            #
+            for ( 1 .. 4 ) {
+                push @{ $dbdesc->{files}->{$file}->{more_info} },
+                  read_u16le($fh);
+            }
         }
 
         $dbdesc->{files}->{$file}->{ 'unknown' . $unknown++ } = read_u16le($fh);
 
-        # Description des colonnes
+        # Field text description
         foreach my $i ( 1 .. $dbdesc->{files}->{$file}->{number_of_fields} ) {
-            my $fieldname = $dbdesc->{ddm_fields}->{$i}->{name};
-            $fdt->{desc} = read_lstring($fh);
+            my $fieldname = $dbdesc->{files}->{$file}->{fields}->[$i];
+            $fdt->{$fieldname}->{desc} = read_lstring($fh);
+            chomp $fdt->{$fieldname}->{desc};
         }
+
+        # assign our shortcut to dbdesc.
         $dbdesc->{files}->{$file}->{fields} = $fdt;
 
         #
         # Are we done on this file ?
         #
         my $cur = tell $fh;
-
-        # set at the end
-        seek $fh, 0, SEEK_END;
+        seek $fh, 0, SEEK_END;    # set at the end
         my $end = tell $fh;
         carp "Still " . $end - $cur . " bytes to read on $filename"
           if $end != $cur;
 
-        #        close $fh;
+        if ( !close $fh ) {
+            croak "Cannot close $filename : $ERRNO";
+        }
+    }
+
+    return $dbdesc;
+}
+
+=head2 bin_dump
+
+Dump the content of data files in a human readable format.
+
+=cut
+
+sub bin_dump {
+    my ($dbdesc) = @_;
+
+    my @files = keys %{ $dbdesc->{files} };
+
+    #print Dumper $dbdesc;
+
+    foreach my $file (@files) {
+        my $pnt      = $dbdesc->{files}->{$file}->{pnt};
+        my $filename = $dbdesc->{files}->{$file}->{data_file};
+        my $fh;
+        if ( !open $fh, '<', $filename ) {
+            croak "Couldn't open file $filename: $ERRNO\n";
+        }
+        binmode $fh;
+
+        # Get field pointer from dbdesc
+        my $field = $dbdesc->{ddm_fields};
+
+        # Get field list
+        my @fields = map { $field->{$_}->{name} } grep { m{ \A \d+ \z}imxs }
+          keys %{$field};
+        print "Fields :", Dumper \@fields;
+        foreach my $f (@fields) {
+            print "$f : type=$field->{$f}->{type}\n";
+        }
+        my $nr = 0;
+        while ( !eof($fh) ) {
+            print STDERR "New record -------------\n";
+            foreach my $f (@fields) {
+                print STDERR "Reading type $field->{$f}->{type} : ";
+                my $m   = $data_method{ $field->{$f}->{type} };
+                my $buf = $m->($fh);
+
+                #$buf = decode( 'iso-8859-1', $buf);
+                $buf = decode( 'cp1252', $buf );
+
+                # $field->{$f}->{len});
+
+                print STDERR $buf . "\n";
+            }
+        }
+        if ( !close $fh ) {
+            croak "Cannot close $filename : $ERRNO";
+        }
     }
 
     return $dbdesc;
@@ -558,3 +678,30 @@ sub fdt_load {
 
 1;
 
+__END__
+
+=head1 DIAGNOSTICS
+
+=head1 CONFIGURATION AND ENVIRONMENT
+
+=head1 DEPENDENCIES
+
+adar relies on the following non core module : C<Data::HexDump>.
+
+=head1 INCOMPATIBILITIES
+
+Many ! This is in development.
+
+=head1 BUGS AND LIMITATIONS
+
+Many ! This is in development.
+
+=head1 AUTHOR 
+
+Your mileage may vary.
+
+=head1 LICENSE AND COPYRIGHT
+
+This code is public domain, I do not claim any rights on it.
+
+=cut
