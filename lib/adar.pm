@@ -136,7 +136,7 @@ sub read_u16le {
     my ($fh) = @_;
 
     read $fh, my $content, 2;
-    my $val = unpack 'v', $content;
+    my $val = unpack 'S', $content;
 
     return $val;
 }
@@ -248,7 +248,18 @@ DDM file).
 
 1|S : String
 
-NUL terminated string.
+String. That includes:
+
+=over 2 
+
+=item * fixed length strings (as in F<inr.bin>),
+
+=item * compressed strings (byte or short prefixed for length (FIXME:
+example)
+
+=item * NUL-terminated strings (FIXME: example)
+
+=back
 
 =item *
 
