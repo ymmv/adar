@@ -68,15 +68,21 @@ foreach my $file (keys %{$dbdesc->{files} }) {
 
         seek $fh, $pos, SEEK_SET;
 
-        my $c;
-        print "Record length: " . read_u16le($fh);
+        my $reclen = read_u16le($fh);
+        print "Record length: $reclen";
 
-        print "\npos: $pos, key: $key ";
+        printf "\npos: $pos (%06x), key: $key ", $pos;
+        my $c1 = read_u8($fh);       # groupe ?
+        my $c2 = read_u8($fh);       # groupe ?
+        print "\nCount? : $c1 $c2";
         print "\nAA: " . read_u32le($fh);  # AA D4
         print "\nAB: " . read_u8($fh);     # AB K1
         print "\nAC: " . read_lkstring($fh);  # AC S10
+        print "\nnr : " . read_u8($fh); # nr de groupe ?
         print "\nAD: " . read_lkstring($fh);  # AD S86
-        print "\nAE: " . read_lkstring($fh);       # AE S30
+        while (tell($fh) < $pos + $reclen - 1) {
+            print "\nAE: " . read_lkstring($fh);  # AD S86
+        }
         print "\n";
         print "\n" . '-' x 60 . "\n";
     }
