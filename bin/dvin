@@ -1,0 +1,66 @@
+#!/usr/bin/perl
+#
+use strict;
+use warnings;
+use Carp;
+use Config::IniFiles;
+use Data::Dumper;
+use Getopt::Std;
+use Fcntl qw( :DEFAULT :seek );
+use lib qw(/home/jfenal/dev/adar/bin);
+use adar;
+
+=pod
+
+=head2 DB descriptor from DDM
+
+    %dbdesc = {
+        ddm => 'dummy.ddm',
+        files => {
+            'FILE1' => { fdt => 'dummy1.fdt', bin_file => 'dummy1.bin' },
+            'FILE2' => { fdt => 'dummy2.fdt', bin_file => 'dummy2.bin' },
+        },
+        fields => {
+            count => 123,
+            1 => { name => AA, 'type' => 'S', comment => '...', },
+            2 => { name => AB, 'type' => 'K', comment => '...', },
+        },
+    };
+
+=cut
+
+our $DEBUG = 0;
+my ( $DUMP_DDM, $DUMP_FDT, $DUMP_PNT, $DUMP_BIN);
+
+sub usage {
+    print << "EOF";
+$0 - Dump PET/ETKA files, supposed to be in an Adabas-ish file format.
+
+Options :
+  -h : help
+  -D : dump DDM file
+  -F : dump FDT file
+  -P : dump PNT file
+  -B : dump BIN file
+
+EOF
+
+    return 0;
+}
+
+my %opt;
+getopts('dPFDBh', \%opt);
+
+open my $fh, '<', 'vin.bin';
+binmode $fh;
+
+while ( ! eof $fh ) {
+    print read_u16le($fh);
+    print read_zstring($fh);
+    print read_u16le($fh);
+    print read_u16le($fh);
+    print read_zstring($fh);
+    print read_zstring($fh);
+
+    print "\n" . '-' x 60 . "\n";
+}
