@@ -7,7 +7,7 @@ use Config::IniFiles;
 use Data::Dumper;
 use Getopt::Std;
 use Fcntl qw( :DEFAULT :seek );
-use lib qw(/home/jfenal/dev/adar/bin);
+use lib qw(../lib);
 use adar;
 
 =pod
@@ -55,12 +55,18 @@ open my $fh, '<', 'vin.bin';
 binmode $fh;
 
 while ( ! eof $fh ) {
-    print read_u16le($fh);
-    print read_zstring($fh);
-    print read_u16le($fh);
-    print read_u16le($fh);
-    print read_zstring($fh);
-    print read_zstring($fh);
+    print "Record length: " . read_u16le($fh) . "\n";
+    print read_fstring($fh, 8);
+    print " -- \n ";
 
+    my $c = read_u8($fh);
+    for ( 1 .. $c) {
+        print read_u32le($fh);
+        print " -- ";
+        print read_u32le($fh);
+        print " -- ";
+        print read_fstring($fh, 6);
+        print "\n";
+    }
     print "\n" . '-' x 60 . "\n";
 }
