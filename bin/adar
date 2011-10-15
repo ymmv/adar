@@ -7,7 +7,7 @@ use Config::IniFiles;
 use Data::Dumper;
 use Getopt::Std;
 use Fcntl qw( :DEFAULT :seek );
-use lib qw(/home/jfenal/dev/adar/bin);
+use lib qw( ../lib );
 use adar;
 
 =pod
