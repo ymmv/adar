@@ -31,16 +31,15 @@ my @fields = ( 256, 128, 64, 32, 16, 8, 4, 2, 1 );
 
 =cut
 
-sub is_field_here
-{
-  my ($present_field, $field_nr) = @_;
+sub is_field_here {
+    my ( $present_field, $field_nr ) = @_;
 
-  return $present_field & $fields[$field_nr];
+    return $present_field & $fields[$field_nr];
 
 }
 
 our $DEBUG = 0;
-my ( $DUMP_DDM, $DUMP_FDT, $DUMP_PNT, $DUMP_BIN);
+my ( $DUMP_DDM, $DUMP_FDT, $DUMP_PNT, $DUMP_BIN );
 
 sub usage {
     print << "EOF";
@@ -59,7 +58,7 @@ EOF
 }
 
 my %opt;
-getopts('dPFDBh', \%opt);
+getopts( 'dPFDBh', \%opt );
 
 my $filename = 'Duden_F';
 
@@ -69,12 +68,23 @@ pnt_load $dbdesc;
 open my $fh, '<', $filename . '.bin';
 binmode $fh;
 
+open my $fopt, '>', 'options.csv';
+
 my %mapc2;
 
+my ( $opt, $optdesc, $optsupp );
+
 # loop through files
-foreach my $file (keys %{$dbdesc->{files} }) {
+foreach my $file ( keys %{ $dbdesc->{files} } ) {
+
     # loop through index
-    foreach my $key ( sort { $dbdesc->{files}->{$file}->{pnt}->{$a} <=> $dbdesc->{files}->{$file}->{pnt}->{$b} } keys %{$dbdesc->{files}->{$file}->{pnt}} ) {
+    foreach my $key (
+        sort {
+            $dbdesc->{files}->{$file}->{pnt}->{$a} <=> $dbdesc->{files}->{$file}
+              ->{pnt}->{$b}
+        } keys %{ $dbdesc->{files}->{$file}->{pnt} }
+      )
+    {
 
         my $pos = $dbdesc->{files}->{$file}->{pnt}->{$key};
 
@@ -84,46 +94,63 @@ foreach my $file (keys %{$dbdesc->{files} }) {
         print "\nRecord length: $reclen";
 
         printf "\npos: $pos (%06x), key: $key ", $pos;
-        my $c1 = read_u8($fh);       # groupe ?
-        my $present_fields = read_u8($fh);       # groupe ?
+        my $c1             = read_u8($fh);    # groupe ?
+        my $present_fields = read_u8($fh);    # groupe ?
         print "\nCount? : $c1";
         print "\nFields : $present_fields";
-        if (is_field_here($present_fields, 1) ) {
-            print "\nAA: " . read_u32le($fh);  # AA D4
+        if ( is_field_here( $present_fields, 1 ) ) {
+            print "\nAA: " . read_u32le($fh);    # AA D4
         }
-        if (is_field_here($present_fields, 2) ) {
-            print "\nAB: " . read_u8($fh);     # AB K1
+        if ( is_field_here( $present_fields, 2 ) ) {
+            print "\nAB: " . read_u8($fh);       # AB K1
         }
-        if (is_field_here($present_fields, 3) ) {
-            print "\nAC: " . read_lkstring($fh);  # AC S10
+        if ( is_field_here( $present_fields, 3 ) ) {
+            my $ac = read_lkstring($fh);         # AC S10
+            print "\nAC: " . $ac;
+            $opt = $ac;
         }
 
-my $backup = tell($fh);
-my $recleft = $pos + $reclen + 2 - $backup;
+        my $backup  = tell($fh);
+        my $recleft = $pos + $reclen + 2 - $backup;
+
 #if ($recleft > 0) { print "\nRecleft: " . read_fstring($fh, $recleft); } seek $fh, $backup, SEEK_SET;
 
         my $nr = read_u8($fh);
-        print "\nnr : $nr"; # nr de groupe ?
-        if (is_field_here($present_fields, 4) ) {
-            print "\n  AD: " . read_lkstring($fh);  # AD S86
+        print "\nnr : $nr";                      # nr de groupe ?
+        if ( is_field_here( $present_fields, 4 ) ) {
+            my $ad;
+            $ad = read_lkstring($fh);            # AD S86
+            print "\n  AD: " . $ad;
+            $optdesc = $ad;
         }
 
-        for my $r (1 .. $nr ) {
+        for my $r ( 1 .. $nr ) {
             print "\n- record $r";
 
-                my $nbsyn = read_u8($fh);
-                print "\n  rec sous-groupe : $nbsyn\n";
-                if ( is_field_here($present_fields, 5) ) {
-                    for (1 .. $nbsyn) {
-                        print "\n  AE: " . read_lkstring($fh);  # AE S
-                    }
+            my $nbsyn = read_u8($fh);
+            print "\n  rec sous-groupe : $nbsyn\n" if defined $nbsyn;
+            if ( is_field_here( $present_fields, 5 ) ) {
+                for ( 1 .. $nbsyn ) {
+                    print "\n  AE: " . read_lkstring($fh);    # AE S
                 }
             }
+        }
 
-            print "\nPosition : " . tell($fh) ;
-            print "\nReste a lire : " . ($reclen + $pos -tell($fh) );
-            print "\n";
-            print "\n" . '-' x 60 . "\n";
+        print "\nPosition : " . tell($fh);
+        print "\nReste a lire : " . ( $reclen + $pos - tell($fh) );
+        print "\n";
+        print "\n" . '-' x 60 . "\n";
+
+        if ( $opt =~ m{ \A [IM] [A-Z0-9] {3} \z }imxs ) {
+            print "$opt $optdesc\n";
+
+            $optdesc =~ s/\"/&quot;/g;
+
+            print $fopt '"' . $opt . '","' . $optdesc . '"' . "\n";
+        }
+
     }
 }
 
+close $fopt;
+close $fh;
