@@ -100,10 +100,7 @@ foreach my $file (keys %{$dbdesc->{files} }) {
 
 my $backup = tell($fh);
 my $recleft = $pos + $reclen + 2 - $backup;
-if ($recleft > 0) {
-    print "\nRecleft: " . read_fstring($fh, $recleft);
-}
-seek $fh, $backup, SEEK_SET;
+#if ($recleft > 0) { print "\nRecleft: " . read_fstring($fh, $recleft); } seek $fh, $backup, SEEK_SET;
 
         my $nr = read_u8($fh);
         print "\nnr : $nr"; # nr de groupe ?
