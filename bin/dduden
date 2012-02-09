@@ -70,6 +70,8 @@ binmode $fh;
 
 open my $fopt, '>', 'options.csv';
 
+print $fopt '"Option","Description"' . qq(\n);
+
 my %mapc2;
 
 my ( $opt, $optdesc, $optsupp );
@@ -117,11 +119,17 @@ foreach my $file ( keys %{ $dbdesc->{files} } ) {
 
         my $nr = read_u8($fh);
         print "\nnr : $nr";                      # nr de groupe ?
+
         if ( is_field_here( $present_fields, 4 ) ) {
-            my $ad;
-            $ad = read_lkstring($fh);            # AD S86
+            my $ad = q();
+            for my $r ( 1 .. $nr ) {
+                    if ($r > 1) {
+                        $ad .= " ";
+                    }
+                    $ad .= read_lkstring($fh);            # AD S86
+                    $optdesc = $ad;
+            }
             print "\n  AD: " . $ad;
-            $optdesc = $ad;
         }
 
         for my $r ( 1 .. $nr ) {
@@ -144,7 +152,7 @@ foreach my $file ( keys %{ $dbdesc->{files} } ) {
         if ( $opt =~ m{ \A [IM] [A-Z0-9] {3} \z }imxs ) {
             print "$opt $optdesc\n";
 
-            $optdesc =~ s/\"/&quot;/g;
+            $optdesc =~ s/"/&quot;/imxsg;
 
             print $fopt '"' . $opt . '","' . $optdesc . '"' . "\n";
         }

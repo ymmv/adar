@@ -1,6 +1,8 @@
 package adar;
+
 use strict;
 use warnings;
+use English;
 
 =head1 NAME
 
@@ -46,6 +48,7 @@ use Fcntl qw( :DEFAULT :seek );
 our @ISA    = qw(Exporter);
 our @EXPORT = qw(
   read_lstring read_zstring read_fstring read_char
+  read_lkstring
   read_u8      read_u16le   read_u16be   read_u32le
   read_u32be   ddm_read     pnt_load     pnt_dump
   ddm_dump     fdt_dump     fdt_load     bin_dump
@@ -80,7 +83,7 @@ sub read_zstring {
   ZSTRING:
     while ( read( $fh, $content, 1 ) ) {
         my $c = unpack 'C', $content;
-        last ZSTRING if !$c;
+        last ZSTRING if $c == 0;
         $text .= $content;
     }
 
@@ -90,8 +93,11 @@ sub read_zstring {
 sub read_lkstring {
     my ($fh) = @_;
 
+    my $text = q();
     my $l = read_u8($fh);
-    my $text = read_fstring( $fh, $l );
+    if ($l) {
+        $text = read_fstring( $fh, $l );
+    }
 
     return $text;
 }
@@ -114,7 +120,11 @@ sub read_fstring {
     my ( $fh, $l ) = @_;
 
     my $text = q();
+    local $/ = "\0";
     read $fh, $text, $l;
+
+    $text =~ s/[\n\r\0]//g;
+    print "l : $l / Text : $text / len : " . length($text) . "\n";
 
     return $text;
 }
@@ -426,6 +436,7 @@ sub pnt_load {
 sub pnt_dump {
     my ($dbdesc) = @_;
 
+print Dumper $dbdesc if $DEBUG;
     #
     # Loop through all possible physical files
     #
